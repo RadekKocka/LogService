@@ -10,13 +10,12 @@ public class Worker : BackgroundService
     private readonly IDbContextFactory<SamkDBContext> _dbContextFactory;
 
     private const string SourceUrl = "https://samk.cz/aquapark-kladno";
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(300);
     private static readonly TimeSpan OperatingEnd = new(21, 30, 0);
 
     public Worker(
         IHttpClientFactory httpClientFactory,
-        IDbContextFactory<SamkDBContext> dbContextFactory,
-        ILogger<Worker> logger)
+        IDbContextFactory<SamkDBContext> dbContextFactory)
     {
         _httpClient = httpClientFactory?.CreateClient() ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _dbContextFactory = dbContextFactory ?? throw new ArgumentNullException(nameof(dbContextFactory));
