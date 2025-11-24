@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="LogService/LogService.csproj" />
+  <Project Path="SamkPoolOccupancyApi/SamkPoolOccupancyApi.csproj" Id="4443f987-4a0a-427c-b701-6f3f7d502e37" />
 </Solution>

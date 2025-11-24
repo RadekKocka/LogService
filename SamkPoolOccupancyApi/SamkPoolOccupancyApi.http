@@ -1,0 +1,5 @@
+@SamkPoolOccupancyApi_HostAddress = https://localhost:7006
+
+GET {{SamkPoolOccupancyApi_HostAddress}}/SamkPoolOccupancy
+
+###
