@@ -1,6 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Configuration;
 
 namespace LogService
 {
@@ -13,6 +11,7 @@ namespace LogService
                 ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
             builder.Services.AddDbContextFactory<SamkDBContext>(options =>
                 options.UseSqlServer(connectionString));
+            builder.Services.AddLogging();
             builder.Services.AddHostedService<Worker>();
             builder.Services.AddHttpClient();
             if (OperatingSystem.IsWindows())

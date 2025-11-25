@@ -1,6 +1,5 @@
 using HtmlAgilityPack;
 using Microsoft.EntityFrameworkCore;
-using System.Net.Http;
 
 namespace LogService;
 
@@ -8,28 +7,33 @@ public class Worker : BackgroundService
 {
     private readonly HttpClient _httpClient;
     private readonly IDbContextFactory<SamkDBContext> _dbContextFactory;
+    private readonly ILogger<Worker> _logger;
 
     private const string SourceUrl = "https://samk.cz/aquapark-kladno";
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(300);
-    private static readonly TimeSpan OperatingEnd = new(21, 30, 0);
+    private static readonly TimeSpan OperatingEnd = new(20, 30, 0);
 
     public Worker(
         IHttpClientFactory httpClientFactory,
-        IDbContextFactory<SamkDBContext> dbContextFactory)
+        IDbContextFactory<SamkDBContext> dbContextFactory,
+        ILogger<Worker> logger)
     {
         _httpClient = httpClientFactory?.CreateClient() ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _dbContextFactory = dbContextFactory ?? throw new ArgumentNullException(nameof(dbContextFactory));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(PollInterval);
 
+        _logger.LogInformation("LogService started.");
+
         try
         {
             do
             {
-                var now = DateTime.Now;
+                var now = DateTime.UtcNow;
 
                 if (!IsWithinOperatingHours(now))
                 {
@@ -56,7 +60,13 @@ public class Worker : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-
+            if (_logger.IsEnabled(LogLevel.Information))
+                _logger.LogInformation("LogService is stopping due to cancellation request.");
+        }
+        finally
+        {
+            timer.Dispose();
+            _logger.LogInformation("LogService has stopped.");
         }
     }
 
@@ -68,52 +78,73 @@ public class Worker : BackgroundService
     }
 
     private static TimeSpan GetStartTimeBasedOnDay(DateTime dateTime) =>
-        dateTime.DayOfWeek == DayOfWeek.Monday ? new TimeSpan(12, 0, 0) : new TimeSpan(9, 30, 0);
+        dateTime.DayOfWeek == DayOfWeek.Monday ? new TimeSpan(11, 0, 0) : new TimeSpan(8, 30, 0);
 
     private static DateTime GetNextOperatingStart(DateTime now)
     {
         var todayStart = now.Date.Add(GetStartTimeBasedOnDay(now));
-        if (todayStart > now) return todayStart;
+        if (todayStart > now) 
+            return todayStart;
 
         var tomorrow = now.Date.AddDays(1);
         return tomorrow.Add(GetStartTimeBasedOnDay(tomorrow));
     }
 
-    private static async Task WaitUntilOperatingStartAsync(DateTime now, CancellationToken ct)
+    private async Task WaitUntilOperatingStartAsync(DateTime now, CancellationToken ct)
     {
         var nextStart = GetNextOperatingStart(now);
-        var delay = nextStart - DateTime.Now;
+        var delay = nextStart - DateTime.UtcNow;
         if (delay <= TimeSpan.Zero) return;
 
         try
         {
+            if (_logger.IsEnabled(LogLevel.Information))
+                _logger.LogInformation("Outside operating hours. Waiting until {startTime}.", nextStart);
             await Task.Delay(delay, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+
         }
     }
 
-    private static int? ParseOccupancy(string html)
+    private int? ParseOccupancy(string html)
     {
-        if (string.IsNullOrWhiteSpace(html)) return null;
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+                _logger.LogWarning("HTML content is empty.");
+            return null;
+        }
 
         var doc = new HtmlDocument();
         doc.LoadHtml(html);
 
         var nameNode = doc.DocumentNode.SelectSingleNode("//div[@class='aq-chart-name']");
-        if (nameNode == null) return null;
+        if (nameNode == null)
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+                _logger.LogWarning($"Could not find 'aq-chart-name' class in HTML.");
+            return null;
+        }
 
         var name = nameNode.InnerText?.Trim();
         if (!string.Equals(name, "Bazen", StringComparison.InvariantCultureIgnoreCase) &&
             !string.Equals(name, "Bazén", StringComparison.InvariantCultureIgnoreCase))
         {
+            if (_logger.IsEnabled(LogLevel.Warning))
+                _logger.LogWarning("Unexpected chart name '{name}'. Should be 'Bazén' or 'Bazen'.", name);
             return null;
         }
 
         var valueNode = nameNode.SelectSingleNode("./following-sibling::div[@class='aq-chart-value']");
         var valueText = valueNode?.InnerText?.Trim();
-        if (string.IsNullOrEmpty(valueText)) return null;
+        if (string.IsNullOrEmpty(valueText))
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+                _logger.LogWarning("Could not find occupancy value in HTML.");
+            return null;
+        }
 
         if (int.TryParse(valueText, out int result))
         {
@@ -125,13 +156,22 @@ public class Worker : BackgroundService
 
     private async Task SaveLogEntryAsync(int occupancy, CancellationToken ct)
     {
-        await using var context = _dbContextFactory.CreateDbContext();
-        context.LogEntries.Add(new Classes.LogEntry
+        try
         {
-            Timestamp = DateTime.Now,
-            Occupancy = occupancy
-        });
+            await using var context = _dbContextFactory.CreateDbContext();
+            context.LogEntries.Add(new Classes.LogEntry
+            {
+                Timestamp = DateTime.UtcNow,
+                Occupancy = occupancy
+            });
 
-        await context.SaveChangesAsync(ct);
+            await context.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            if (_logger.IsEnabled(LogLevel.Error))
+                _logger.LogError(ex, "Error saving log entry to database.");
+        }
+
     }
 }

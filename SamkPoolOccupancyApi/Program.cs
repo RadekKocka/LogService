@@ -9,28 +9,21 @@ namespace SamkPoolOccupancyApi
     {
         public static void Main(string[] args)
         {
-            var connectionString = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING");
+            var connectionString = Environment.GetEnvironmentVariable("AZURE_DB_CONNECTION");
             if (string.IsNullOrWhiteSpace(connectionString))
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine(
                     "No connection string found. Provide a connection string named 'DefaultConnection' in appsettings.json/user secrets, " +
-                    "or set the 'DB_CONNECTION_STRING' environment variable.");
+                    "or set the 'AZURE_DB_CONNECTION' environment variable.");
                 Console.ResetColor();
                 return;
             }
+
             var builder = WebApplication.CreateBuilder(args);
             builder.Services.AddControllers();
             builder.Services.AddDbContextFactory<SamkPoolOccupancyDBContext>(options =>
-            {
-                options.UseSqlServer(connectionString, options =>
-                {
-                    options.EnableRetryOnFailure(
-                        maxRetryCount: 10,
-                        maxRetryDelay: TimeSpan.FromSeconds(30),
-                        errorNumbersToAdd: null);
-                });
-            });
+                options.UseSqlServer(connectionString));
             builder.Services.AddTransient<IOccupancyRepository, OccupancyRepositoryImpl>();
             builder.Services.AddOpenApi();
 
