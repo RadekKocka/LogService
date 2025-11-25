@@ -23,7 +23,13 @@ namespace SamkPoolOccupancyApi
             builder.Services.AddControllers();
             builder.Services.AddDbContextFactory<SamkPoolOccupancyDBContext>(options =>
             {
-                options.UseSqlServer(connectionString);
+                options.UseSqlServer(connectionString, options =>
+                {
+                    options.EnableRetryOnFailure(
+                        maxRetryCount: 10,
+                        maxRetryDelay: TimeSpan.FromSeconds(30),
+                        errorNumbersToAdd: null);
+                });
             });
             builder.Services.AddTransient<IOccupancyRepository, OccupancyRepositoryImpl>();
             builder.Services.AddOpenApi();
