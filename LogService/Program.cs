@@ -8,18 +8,9 @@ namespace LogService
     {
         public static void Main(string[] args)
         {
-            var connectionString = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING");
-            if (string.IsNullOrWhiteSpace(connectionString))
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine(
-                    "No connection string found. Provide a connection string named 'DefaultConnection' in appsettings.json/user secrets, " +
-                    "or set the 'DB_CONNECTION_STRING' environment variable.");
-                Console.ResetColor();
-                return;
-            }
-
             var builder = Host.CreateApplicationBuilder(args);
+            var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
             builder.Services.AddDbContextFactory<SamkDBContext>(options =>
                 options.UseSqlServer(connectionString));
             builder.Services.AddHostedService<Worker>();
