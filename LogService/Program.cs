@@ -7,13 +7,11 @@ namespace LogService
         public static void Main(string[] args)
         {
             var builder = Host.CreateApplicationBuilder(args);
-            var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+            var cString = Environment.GetEnvironmentVariable("DB_CONNECTION_STRING");
             builder.Services.AddDbContextFactory<SamkDBContext>(options =>
-                options.UseSqlServer(connectionString));
+                options.UseSqlServer(cString));
             builder.Services.AddLogging();
             builder.Services.AddHostedService<Worker>();
-            builder.Services.AddHttpClient();
             if (OperatingSystem.IsWindows())
                 builder.Logging.AddEventLog();
             builder.Services.AddWindowsService(options =>

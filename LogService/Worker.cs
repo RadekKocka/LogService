@@ -1,31 +1,42 @@
 using HtmlAgilityPack;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Playwright;
 
 namespace LogService;
 
 public class Worker : BackgroundService
 {
-    private readonly HttpClient _httpClient;
     private readonly IDbContextFactory<SamkDBContext> _dbContextFactory;
     private readonly ILogger<Worker> _logger;
+    private IPlaywright? _playwright;
+    private IBrowser? _browser;
 
     private const string SourceUrl = "https://samk.cz/aquapark-kladno";
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(300);
     private static readonly TimeSpan OperatingEnd = new(20, 30, 0);
 
+
     public Worker(
-        IHttpClientFactory httpClientFactory,
         IDbContextFactory<SamkDBContext> dbContextFactory,
         ILogger<Worker> logger)
     {
-        _httpClient = httpClientFactory?.CreateClient() ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        _dbContextFactory = dbContextFactory ?? throw new ArgumentNullException(nameof(dbContextFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _dbContextFactory = dbContextFactory ?? throw new ArgumentNullException(nameof(dbContextFactory));
+    }
+
+    private Task<IPlaywright> CreatePlayWright()
+    {
+        return Microsoft.Playwright.Playwright.CreateAsync();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(PollInterval);
+        _playwright = await CreatePlayWright();
+        _browser = await _playwright.Chromium.LaunchAsync(new()
+        {
+            Headless = true
+        });
 
         _logger.LogInformation("LogService started.");
 
@@ -43,7 +54,15 @@ public class Worker : BackgroundService
 
                 try
                 {
-                    var html = await _httpClient.GetStringAsync(SourceUrl, stoppingToken);
+                    await using var context = await _browser!.NewContextAsync();
+                    var page = await context.NewPageAsync();
+
+                    await page.GotoAsync(SourceUrl, new()
+                    {
+                        WaitUntil = WaitUntilState.DOMContentLoaded
+                    });
+
+                    var html = await page.ContentAsync();
                     var occupancy = ParseOccupancy(html);
 
                     if (occupancy.HasValue)
@@ -83,7 +102,7 @@ public class Worker : BackgroundService
     private static DateTime GetNextOperatingStart(DateTime now)
     {
         var todayStart = now.Date.Add(GetStartTimeBasedOnDay(now));
-        if (todayStart > now) 
+        if (todayStart > now)
             return todayStart;
 
         var tomorrow = now.Date.AddDays(1);
@@ -172,6 +191,19 @@ public class Worker : BackgroundService
             if (_logger.IsEnabled(LogLevel.Error))
                 _logger.LogError(ex, "Error saving log entry to database.");
         }
+    }
 
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_logger.IsEnabled(LogLevel.Information))
+            _logger.LogInformation("LogService is stopping.");
+        if (_browser != null)
+        {
+            await _browser.CloseAsync();
+            _browser = null;
+        }
+        _playwright?.Dispose();
+        _playwright = null;
+        await base.StopAsync(cancellationToken);
     }
 }
