@@ -26,11 +26,15 @@ public class Worker : BackgroundService
 
     private Task<IPlaywright> CreatePlayWright()
     {
-        return Microsoft.Playwright.Playwright.CreateAsync();
+        return Playwright.CreateAsync();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        Environment.SetEnvironmentVariable( "PLAYWRIGHT_BROWSERS_PATH",
+                                            "0",
+                                            EnvironmentVariableTarget.Process);
+
         using var timer = new PeriodicTimer(PollInterval);
         _playwright = await CreatePlayWright();
         _browser = await _playwright.Chromium.LaunchAsync(new()
